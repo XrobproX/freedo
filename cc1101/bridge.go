@@ -7,6 +7,7 @@ package cc1101
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -60,6 +61,23 @@ const serialDrainLimit = 3 * time.Second
 
 // bannerPrefix starts the PING banner of every firmware version.
 const bannerPrefix = "CC1101BRIDGE"
+
+var bannerPattern = regexp.MustCompile(`^CC1101BRIDGE (v[0-9][0-9A-Za-z.-]*) \(([^()]+)\)$`)
+
+// BridgeBanner identifies the bridge protocol and build shown in PING.
+type BridgeBanner struct {
+	Protocol string
+	Build    string
+}
+
+// ParseBanner returns the protocol and build from a PING banner.
+func ParseBanner(banner string) (BridgeBanner, bool) {
+	match := bannerPattern.FindStringSubmatch(strings.TrimSpace(banner))
+	if match == nil {
+		return BridgeBanner{}, false
+	}
+	return BridgeBanner{Protocol: match[1], Build: match[2]}, true
+}
 
 // replyCheck reports whether a reply has the shape of the answer to a request.
 type replyCheck func(status byte, data []byte) bool

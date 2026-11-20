@@ -19,7 +19,7 @@ jobs:
       contents: read
 
   images:
-    needs: [ci, validate]
+    needs: [ci, validate, firmware]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,6 +33,10 @@ jobs:
             target: addon
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: firmware
+          path: firmware/release
       - name: The tag, the add-ons and the integration follow the version rules
         env:
           TAG: ${{ github.ref_name }}

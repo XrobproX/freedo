@@ -93,39 +93,49 @@ type liveSerialErrors interface {
 	SerialErrors() uint64
 }
 
+type liveBridgeBanner interface {
+	Banner() string
+}
+
 type daemon struct {
 	emu *tado.EmuState
 	// inst is read on the HTTP goroutines and replaced on the engine one, so it
 	// is swapped as a whole validated installation, never edited in place.
-	inst             atomic.Pointer[tado.Install]
-	radio            radio.Radio
-	state            *stateStore
-	saveSeq          uint64
-	unsaved          bool      // an engine change owed to the database, see saveLearned
-	savedAt          time.Time // the last save the engine made itself
-	dryRun           bool
-	mode             string
-	cmds             chan func()
-	dispatch         chan struct{}
-	done             chan struct{}
-	radioLost        chan error    // the error of a live radio loop that ended on its own
-	restart          chan struct{} // an import is staged: stop and start again
-	beaconEvery      time.Duration
-	retryAfter       func(time.Duration) <-chan time.Time
-	retryNow         func() time.Time
-	retryRand        func() uint16
-	retryDue         map[string]uint64
-	retryAt          map[string]time.Time
-	retryMID         map[string]uint16
-	coapRetryBase    map[string]coapRetryState
-	dispatchDue      map[string]bool
-	dispatchQ        []string
-	cslAdmissionWait map[string]cslAdmissionWait
-	linkMaint        map[string]linkMaintEntry
-	linkMaintOrder   []string
-	linkMaintCursor  int
-	linkMaintTick    uint16
-	linkMaintWait    uint16
+	inst               atomic.Pointer[tado.Install]
+	radio              radio.Radio
+	state              *stateStore
+	saveSeq            uint64
+	unsaved            bool      // an engine change owed to the database, see saveLearned
+	savedAt            time.Time // the last save the engine made itself
+	dryRun             bool
+	mode               string
+	cmds               chan func()
+	dispatch           chan struct{}
+	done               chan struct{}
+	radioLost          chan error    // the error of a live radio loop that ended on its own
+	restart            chan struct{} // an import is staged: stop and start again
+	bridgeRestart      chan struct{} // the bridge firmware flash completed: stop and start again
+	bridgeFlashMu      sync.RWMutex
+	bridgeFlash        bridgeFlashStatus
+	bridgeFlashPort    string
+	bridgeFlashImage   string
+	bridgeFlashEsptool string
+	beaconEvery        time.Duration
+	retryAfter         func(time.Duration) <-chan time.Time
+	retryNow           func() time.Time
+	retryRand          func() uint16
+	retryDue           map[string]uint64
+	retryAt            map[string]time.Time
+	retryMID           map[string]uint16
+	coapRetryBase      map[string]coapRetryState
+	dispatchDue        map[string]bool
+	dispatchQ          []string
+	cslAdmissionWait   map[string]cslAdmissionWait
+	linkMaint          map[string]linkMaintEntry
+	linkMaintOrder     []string
+	linkMaintCursor    int
+	linkMaintTick      uint16
+	linkMaintWait      uint16
 	// txResume and midResume are the frame counter and the Message ID the
 	// database resumes from, see leaseCounters. They belong to the engine
 	// goroutine.
@@ -298,6 +308,7 @@ func newDaemon(in *tado.Install, emu *tado.EmuState, radio radio.Radio, dryRun b
 		done:             make(chan struct{}),
 		radioLost:        make(chan error, 1),
 		restart:          make(chan struct{}, 1),
+		bridgeRestart:    make(chan struct{}, 1),
 		retryAfter:       time.After,
 		retryNow:         time.Now,
 		retryRand:        randomRetryUint16,
@@ -1911,6 +1922,8 @@ type idBody struct {
 func (d *daemon) mux() *http.ServeMux {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/health", d.getHealth)
+	m.HandleFunc("GET /api/bridge/flash", d.getBridgeFlash)
+	m.HandleFunc("POST /api/bridge/flash", d.postBridgeFlash)
 	// The debug endpoints decrypt caller-supplied frames and stream live traffic,
 	// so they stay off by default.
 	if d.debugAPI {
@@ -2081,6 +2094,11 @@ func (d *daemon) txArmed() bool {
 	if d.dryRun {
 		return false
 	}
+	if d.bridgeFlashPort != "" {
+		if _, ok := d.radio.(liveBridgeBanner); !ok {
+			return false
+		}
+	}
 	if radio, ok := d.radio.(liveRadioStatus); ok {
 		return radio.TXArmed()
 	}
@@ -2117,6 +2135,37 @@ func (d *daemon) healthBase() (map[string]any, bool) {
 	}
 	if radio, ok := d.radio.(liveSerialErrors); ok {
 		health["serialErrors"] = radio.SerialErrors()
+	}
+	if d.mode == "live" && d.bridgeFlashPort != "" {
+		if radio, ok := d.radio.(liveBridgeBanner); ok {
+			banner := radio.Banner()
+			bridge, parsed := cc1101.ParseBanner(banner)
+			expected := strings.TrimPrefix(buildinfo.Version, "v")
+			status := "unknown"
+			if parsed {
+				status = "mismatch"
+				if strings.TrimPrefix(bridge.Build, "v") == expected {
+					status = "match"
+				}
+			}
+			health["bridgeFirmware"] = map[string]any{
+				"banner":          banner,
+				"protocol":        bridge.Protocol,
+				"build":           bridge.Build,
+				"expectedBuild":   expected,
+				"status":          status,
+				"updateAvailable": status != "match",
+			}
+		} else {
+			health["bridgeFirmware"] = map[string]any{
+				"banner":          "",
+				"protocol":        "",
+				"build":           "",
+				"expectedBuild":   strings.TrimPrefix(buildinfo.Version, "v"),
+				"status":          "missing",
+				"updateAvailable": true,
+			}
+		}
 	}
 	// calibrated says the register comes from a stored or a measured
 	// calibration. Only a live radio has one.
@@ -4601,10 +4650,11 @@ flags:
 	case *port != "":
 		r, err := newLiveRadio(store, *port, in.CoordinatorEUI(), cfg.CSLPhase, *doTx, *tuneDebug)
 		if err != nil {
-			closeStore(store)
-			die("%v", err)
+			log.Printf("bridge maintenance: live radio unavailable: %v", err)
+			link, mode = radio.NewMock(nil), "live"
+		} else {
+			link, mode = r, "live"
 		}
-		link, mode = r, "live"
 	case *replay != "":
 		r, err := radio.NewReplay(*replay)
 		if err != nil {
@@ -4617,6 +4667,7 @@ flags:
 	}
 
 	d := newDaemon(in, emu, link, !*doTx, mode)
+	d.bridgeFlashPort = *port
 	d.debugAPI = *debugAPI
 	if err := d.attachState(store); err != nil {
 		closeStore(store)
@@ -4654,6 +4705,8 @@ flags:
 	}
 	d.applyHomeState(emu)
 	unknownModules := emu.UnknownInterfaceModules()
+	d.bridgeFlashImage = os.Getenv("FREEDO_BRIDGE_IMAGE")
+	d.bridgeFlashEsptool = os.Getenv("FREEDO_ESPTOOL")
 	ctx, cancel := context.WithCancel(context.Background())
 	go d.run(ctx)
 	go d.storeCalibrations(ctx)
@@ -4697,10 +4750,15 @@ flags:
 	}
 	var httpErr, radioErr error
 	restart := false
+	bridgeRestart := false
 	select {
 	case <-d.restart:
 		restart = true
 		fmt.Println("import: a state is staged, restarting")
+	case <-d.bridgeRestart:
+		bridgeRestart = true
+		restart = true
+		fmt.Println("bridge firmware: flash completed, restarting")
 	case s := <-sig:
 		fmt.Printf("interrupted by %s\n", s)
 		// A second signal leaves at once, whatever the shutdown is waiting for.
@@ -4755,6 +4813,9 @@ flags:
 		die("radio: %v", radioErr)
 	}
 	if restart {
+		if bridgeRestart {
+			die("restart after bridge firmware flash: %v", reexec())
+		}
 		// A service manager or a restart policy starts the process when this fails,
 		// and that start applies the staged file too.
 		die("restart after the import: %v", reexec())

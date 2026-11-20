@@ -129,6 +129,8 @@ banner.
 | Route | Purpose |
 |---|---|
 | `GET /api/health` | State of the daemon, the radio and the devices, with alerts. |
+| `GET /api/bridge/flash` | State of the bridge firmware maintenance job. |
+| `POST /api/bridge/flash` | Close the live radio and flash the release bridge image, then restart. |
 | `GET /api/nodes`, `GET /api/nodes/{id}` | Devices with telemetry, battery, faults and settings. |
 | `GET /api/zones` | Zones with members, demand, target, window state and external temperature. |
 | `GET /api/circuits` | Heating circuits as the engine sees them. |
@@ -834,6 +836,12 @@ at least one alarm. `/api/nodes` shows the same data as `LowBattery`, `Fault`, `
   field exists while the daemon holds an installation.
 - `version` in `GET /api/health` is the version of the daemon: the release tag, or `dev`
   for a build without one.
+- `bridgeFirmware` in live mode is the PING banner of the bridge. `protocol` is the bridge
+  firmware family, `build` is the Freedo build in parentheses, and `expectedBuild` is the
+  running daemon version. `status` is `match`, `mismatch`, `unknown` or `missing`; `missing`
+  means a live serial port is configured but no bridge firmware answered. `updateAvailable`
+  is true unless the build matches. `GET /api/bridge/flash` reports the maintenance job, and
+  `POST /api/bridge/flash` flashes the bundled merged image after closing the live radio.
 - `GET /api/health` answers within three seconds. It answers `503` with `"ok": false` when
   the engine is busy (`"engine": "busy"`) or when the live radio loop ended (`radioError`).
   It reports `fsctrl0`, `calibrated` and `calibration` in live mode: see

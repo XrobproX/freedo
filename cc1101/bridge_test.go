@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+func TestParseBanner(t *testing.T) {
+	for _, tt := range []struct {
+		banner   string
+		protocol string
+		build    string
+		ok       bool
+	}{
+		{"CC1101BRIDGE v2.10 (0.12.0)", "v2.10", "0.12.0", true},
+		{"CC1101BRIDGE v2.10 (dev)", "v2.10", "dev", true},
+		{"CC1101BRIDGE", "", "", false},
+	} {
+		got, ok := ParseBanner(tt.banner)
+		if ok != tt.ok || got.Protocol != tt.protocol || got.Build != tt.build {
+			t.Errorf("ParseBanner(%q) = %+v, %v", tt.banner, got, ok)
+		}
+	}
+}
+
 // A late reply of another request in front of the reply must not fail the
 // request: AUTOACK and TXTRAIN read past it to their own reply.
 func TestRequestsSkipLateReplyOfAnotherRequest(t *testing.T) {

@@ -319,6 +319,17 @@ esptool --chip esp32 --port /dev/ttyUSB0 write-flash 0x0 \
 Use the application image only at offset `0x10000` of a board that already has the
 bootloader and the partition table of the same core.
 
+### Update from the web interface
+
+Freedo compares the build in parentheses of `CC1101BRIDGE v2.10 (<build>)` with the version
+of the running Freedo release. The settings page shows the mismatch and offers a confirmed
+update. The daemon closes the live serial radio, runs esptool for the bundled merged image,
+and restarts after the flash.
+
+The update route is maintenance-only and restricted to a Home Assistant administrator in
+ingress mode. The daemon verifies the PING banner after the restart. No image upload is
+needed for a normal release update.
+
 ### Check the bridge
 
 Check the bridge after the flash:

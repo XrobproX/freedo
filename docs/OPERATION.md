@@ -468,6 +468,18 @@ or a lower rate from 500 kbaud in both directions. It showed on a Raspberry Pi 5
 second full-speed USB device on the same bus, and not on an x86 host. The point of loss inside
 the USB stack is not measured. Bridge firmware v2.10 and later talks 230400 baud.
 
+## Bridge firmware version mismatch
+
+At start Freedo also compares the build in the PING banner with the running Freedo release.
+For example, `CC1101BRIDGE v2.10 (0.12.0)` belongs to Freedo `0.12.0`; the protocol family
+`v2.10` and the build ID `0.12.0` have separate meanings. The Settings page reports `match`,
+`mismatch` or `unknown` and offers the update that belongs to this release.
+
+The update runs in the web interface only after confirmation. It closes the live radio, writes
+the bundled merged image with esptool, restarts Freedo and verifies the PING banner again.
+During the flash the radio is unavailable and no update of the live radio may run in parallel.
+In Home Assistant ingress the flash action requires an active administrator.
+
 Fix: flash firmware v2.10 or later, see the
 [firmware README](../firmware/cc1101_bridge/README.md#flash-a-released-image). The daemon
 tries 230400 and then 921600, so an old bridge keeps working until you flash it. The daemon

@@ -2,6 +2,7 @@
 	import { boilerFaults } from './boiler.ts';
 	import { data } from './data.svelte.ts';
 	import Icon, { type IconName } from './Icon.svelte';
+	import { resolve } from '$app/paths';
 	import { t } from './i18n.svelte.ts';
 	import type { Tone } from './zones.ts';
 
@@ -23,6 +24,15 @@
 		if (h?.bridgePresent) list.push({ tone: 'fault', icon: 'warning', text: t('banner.bridge') });
 		if (h && h.mode === 'live' && !h.tx) list.push({ tone: 'warning', icon: 'warning', text: t('banner.dryRun') });
 		if (h && h.mode !== 'live') list.push({ tone: 'warning', icon: 'warning', text: t('banner.noRadio') });
+		if (h?.bridgeFirmware?.updateAvailable) {
+			list.push({
+				tone: 'warning',
+				icon: 'warning',
+				text: h.bridgeFirmware.status === 'missing'
+					? t('banner.bridgeFirmwareMissing')
+					: t('banner.bridgeFirmwareMismatch')
+			});
+		}
 		const faults = boilerFaults(data.boiler);
 		if (faults.state === 'fault') list.push({ tone: 'fault', icon: 'fault', text: faults.codes.length > 0 ? t('boiler.faults', { codes: faults.codes.join(', ') }) : t('boiler.faults.noCodeBanner') });
 		return list;
@@ -39,5 +49,8 @@
 	<p class="notice tone-{banner.tone}" role={banner.tone === 'fault' ? 'alert' : 'status'}>
 		<Icon name={banner.icon} />
 		<span>{banner.text}</span>
+		{#if banner.text === t('banner.bridgeFirmwareMissing') || banner.text === t('banner.bridgeFirmwareMismatch')}
+			<a class="btn" href={resolve('/settings')}>{t('settings.bridgeFirmware.update')}</a>
+		{/if}
 	</p>
 {/each}

@@ -44,6 +44,25 @@ export interface Calibration {
 	want?: number;
 }
 
+export interface BridgeFirmware {
+	banner: string;
+	protocol: string;
+	build: string;
+	expectedBuild: string;
+	status: 'match' | 'mismatch' | 'unknown' | 'missing';
+	updateAvailable: boolean;
+}
+
+export interface BridgeFlashStatus {
+	state: 'idle' | 'pausing' | 'flashing' | 'restarting' | 'failed';
+	message?: string;
+	startedAt?: string;
+	finishedAt?: string;
+	output?: string;
+	port?: string;
+	expectedBuild: string;
+}
+
 export interface Health {
 	ok: boolean;
 	/** The version of the daemon, "dev" on a build with no release stamp. */
@@ -63,6 +82,7 @@ export interface Health {
 	fsctrl0?: string;
 	/** Serial replies of the bridge lost since the start. Live mode only. */
 	serialErrors?: number;
+	bridgeFirmware?: BridgeFirmware;
 	calibrated?: boolean;
 	/** The receiver calibration. Live mode only. */
 	calibration?: Calibration;

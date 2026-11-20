@@ -60,6 +60,28 @@
 		toasts.push('ok', t('settings.token.removed'));
 	}
 
+	let bridgeFlashDialog: ConfirmDialog | undefined = $state();
+	let bridgeFlashBusy = $state(false);
+
+	async function startBridgeFlash() {
+		bridgeFlashBusy = true;
+		try {
+			await api.startBridgeFlash();
+			toasts.push('ok', t('settings.bridgeFirmware.flashing'));
+			const before = health?.uptimeSec ?? 0;
+			await waitForRestart(() => api.health().then((next) => uptimeOf(next)), {
+				before,
+				limitMs: 60_000,
+				stepMs: 1_000
+			});
+			await data.refresh();
+		} catch (error) {
+			toasts.push('error', error instanceof Error ? error.message : t('settings.bridgeFirmware.failed'));
+		} finally {
+			bridgeFlashBusy = false;
+		}
+	}
+
 	let history = $state<HistoryInfo | null>(null);
 	let historyBusy = $state(false);
 	let historyOff: ConfirmDialog | undefined = $state();
@@ -284,6 +306,20 @@
 						<span class="list-main"><span class="list-label">{t('settings.mode')}</span></span>
 						<span class="list-value value"><span class="dot tone-{health.mode === 'live' ? 'idle' : 'off'}"></span>{t(`mode.${health.mode}`)}</span>
 					</li>
+						{#if health.bridgeFirmware}
+						<li class="list-row">
+							<span class="disc"><Icon name={health.bridgeFirmware.status === 'match' ? 'check' : 'warning'} size={18} /></span>
+							<span class="list-main">
+								<span class="list-label">{t('settings.bridgeFirmware')}</span>
+								<span class="list-sub num">{health.bridgeFirmware.status === 'missing' ? t('settings.bridgeFirmware.missing') : `${health.bridgeFirmware.protocol} · ${health.bridgeFirmware.build || '-'}`}</span>
+							</span>
+							{#if health.bridgeFirmware.updateAvailable}
+								<button class="btn" type="button" onclick={() => bridgeFlashDialog?.show()} disabled={bridgeFlashBusy}>{t('settings.bridgeFirmware.update')}</button>
+							{:else}
+								<span class="list-value value"><span class="dot tone-idle"></span>{t('settings.bridgeFirmware.match')}</span>
+							{/if}
+						</li>
+					{/if}
 					<li class="list-row">
 						<span class="disc"><Icon name="bolt" size={18} /></span>
 						<span class="list-main"><span class="list-label">{t('settings.transmit')}</span></span>
@@ -500,6 +536,14 @@
 		<footer class="version"><img src={icon} alt="" width="28" height="28" />freedo <span class="num">{health.version}</span></footer>
 	{/if}
 </section>
+
+<ConfirmDialog
+	bind:this={bridgeFlashDialog}
+	title={t('settings.bridgeFirmware.confirm.title')}
+	body={t('settings.bridgeFirmware.confirm.body', { expected: health?.bridgeFirmware?.expectedBuild ?? health?.version ?? '', installed: health?.bridgeFirmware?.build || '-' })}
+	confirm={t('settings.bridgeFirmware.confirm')}
+	onconfirm={startBridgeFlash}
+/>
 
 <ConfirmDialog
 	bind:this={historyOff}

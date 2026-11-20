@@ -263,26 +263,36 @@ func TestImportWaitInTheStart(t *testing.T) {
 		float64(second.leftSec()) < want-1 || float64(second.leftSec()) > want+1 {
 		t.Fatalf("health after a restart in the wait: %v, first %d s, %.1f s to the end\n%s", second.body, first.leftSec(), want, output.String())
 	}
-	select {
-	case err := <-done:
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) {
-			t.Fatalf("the daemon exited with %v, want the failure of the serial port\n%s", err, output.String())
+	deadline := time.After(total*time.Second + 15*time.Second)
+	var maintenanceReady bool
+	for !maintenanceReady {
+		select {
+		case err := <-done:
+			t.Fatalf("the daemon exited instead of waiting for bridge maintenance: %v\n%s", err, output.String())
+		case <-time.After(250 * time.Millisecond):
+			maintenanceReady = strings.Contains(output.String(), "bridge maintenance: live radio unavailable")
+		case <-deadline:
+			t.Fatalf("the wait did not end\n%s", output.String())
 		}
-		if early := time.Until(end); early > 0 {
-			t.Errorf("the start went on %s before the end of the wait\n%s", early, output.String())
-		}
-	case <-time.After(total*time.Second + 15*time.Second):
-		t.Fatalf("the wait did not end\n%s", output.String())
+	}
+	if early := time.Until(end); early > 0 {
+		t.Errorf("the daemon entered maintenance %s before the end of the wait\n%s", early, output.String())
+	}
+	cmd.Process.Signal(syscall.SIGTERM)
+	if err := <-done; err != nil {
+		t.Fatalf("the maintenance daemon exited with %v\n%s", err, output.String())
 	}
 	log := output.String()
-	for _, want := range []string{"before the start, so that no device still holds a Message ID of the replaced state", "error: no such file or directory"} {
+	for _, want := range []string{"before the start, so that no device still holds a Message ID of the replaced state", "bridge maintenance: live radio unavailable"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("the log does not carry %q:\n%s", want, log)
 		}
 	}
-	if after := dumpFile(t, state); !reflect.DeepEqual(after, before) {
-		t.Errorf("the database changed in the wait\n got: %v\nwant: %v", after, before)
+	after := dumpFile(t, state)
+	for _, table := range []string{"boost", "child_lock", "circuit", "config_doc", "device", "flow_c", "install", "net_key", "offline_schedule", "plant_episode", "preset", "sched_doc", "temp_unit_f", "utc_settled", "zone", "zone_member", "zone_program", "zone_state", "zone_window", "zone_window_owed"} {
+		if !reflect.DeepEqual(after[table], before[table]) {
+			t.Errorf("the installation table %q changed in the wait\n got: %v\nwant: %v", table, after[table], before[table])
+		}
 	}
 	if _, err := os.Stat(state + stagedImportSuffix); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the refused import left a staged file: %v", err)

@@ -36,6 +36,17 @@ The add-on starts in dry-run. Turn Transmit on only after the
 [first radio session](https://github.com/CappyT/freedo/blob/main/docs/OPERATION.md#first-radio-session)
 checks.
 
+## Bridge firmware update
+
+At start, Freedo reads the PING banner of the ESP32 bridge. The build in parentheses must
+match the running add-on release, for example `CC1101BRIDGE v2.10 (0.12.0)` for Freedo
+`0.12.0`. The Settings page shows a mismatch and offers the bundled bridge update.
+
+The update closes the serial radio, flashes the matching merged image with esptool and
+restarts the add-on. During this maintenance step the radio is unavailable. The update is
+for Home Assistant administrators only. In the standalone container the API bearer token is
+required as usual.
+
 ## Pre-releases and the beta add-on
 
 This add-on runs stable releases only. Pre-releases run in a second add-on of the same repository,

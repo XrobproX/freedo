@@ -1,5 +1,6 @@
 import type {
 	Boiler,
+	BridgeFlashStatus,
 	Calibration,
 	BoilerPatch,
 	Circuit,
@@ -142,6 +143,8 @@ export function createClient(options: ClientOptions = {}) {
 				throw error;
 			}
 		},
+		bridgeFlash: () => request<{ flash: BridgeFlashStatus }>('GET', 'bridge/flash'),
+		startBridgeFlash: () => request<{ flash: BridgeFlashStatus }>('POST', 'bridge/flash'),
 		zones: () => request<Zones>('GET', 'zones'),
 		nodes: () => request<NodeView[]>('GET', 'nodes'),
 		home: () => request<Home>('GET', 'home'),

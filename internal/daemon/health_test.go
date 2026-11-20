@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"freedo/internal/buildinfo"
 	"freedo/internal/radio"
 	"freedo/tado"
 )
@@ -36,7 +37,15 @@ type healthResp struct {
 		Readings *int   `json:"readings"`
 		Want     *int   `json:"want"`
 	} `json:"calibration"`
-	Version   string `json:"version"`
+	Version        string `json:"version"`
+	BridgeFirmware *struct {
+		Banner          string `json:"banner"`
+		Protocol        string `json:"protocol"`
+		Build           string `json:"build"`
+		ExpectedBuild   string `json:"expectedBuild"`
+		Status          string `json:"status"`
+		UpdateAvailable bool   `json:"updateAvailable"`
+	} `json:"bridgeFirmware"`
 	StartedAt string `json:"startedAt"`
 	UptimeSec *int   `json:"uptimeSec"`
 	Unhandled *int   `json:"unhandled"`
@@ -170,6 +179,71 @@ func TestHealthReportsTheRegister(t *testing.T) {
 
 // linkRadio is a mock radio that also counts the serial replies it lost, like
 // the live one.
+type bannerRadio struct {
+	*radio.Mock
+	banner string
+}
+
+func (r *bannerRadio) Banner() string { return r.banner }
+
+func TestHealthReportsBridgeFirmwareBuild(t *testing.T) {
+	before := buildinfo.Version
+	buildinfo.Version = "0.12.0"
+	t.Cleanup(func() { buildinfo.Version = before })
+
+	for _, tt := range []struct {
+		banner string
+		status string
+	}{
+		{"CC1101BRIDGE v2.10 (0.12.0)", "match"},
+		{"CC1101BRIDGE v2.10 (0.11.0)", "mismatch"},
+		{"CC1101BRIDGE", "unknown"},
+	} {
+		t.Run(tt.status, func(t *testing.T) {
+			emu := tado.NewEmu(defaultInstall.EmuConfig(), tado.NewUnhandledLogger(io.Discard))
+			d := newDaemon(defaultInstall, emu, &bannerRadio{Mock: radio.NewMock(nil), banner: tt.banner}, false, "live")
+			d.bridgeFlashPort = "/dev/ttyUSB0"
+			ctx, cancel := context.WithCancel(context.Background())
+			go d.run(ctx)
+			srv := httptest.NewServer(d.mux())
+			t.Cleanup(func() { srv.Close(); cancel() })
+
+			var health healthResp
+			if code := getBounded(t, srv.URL+"/api/health", &health); code != http.StatusOK {
+				t.Fatalf("status=%d, want 200", code)
+			}
+			if health.BridgeFirmware == nil || health.BridgeFirmware.Status != tt.status {
+				t.Fatalf("bridge firmware=%+v, want status %q", health.BridgeFirmware, tt.status)
+			}
+		})
+	}
+}
+
+func TestHealthReportsMissingBridgeFirmware(t *testing.T) {
+	before := buildinfo.Version
+	buildinfo.Version = "0.12.0"
+	t.Cleanup(func() { buildinfo.Version = before })
+
+	emu := tado.NewEmu(defaultInstall.EmuConfig(), tado.NewUnhandledLogger(io.Discard))
+	d := newDaemon(defaultInstall, emu, radio.NewMock(nil), false, "live")
+	d.bridgeFlashPort = "/dev/ttyUSB0"
+	ctx, cancel := context.WithCancel(context.Background())
+	go d.run(ctx)
+	srv := httptest.NewServer(d.mux())
+	t.Cleanup(func() { srv.Close(); cancel() })
+
+	var health healthResp
+	if code := getBounded(t, srv.URL+"/api/health", &health); code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", code)
+	}
+	if health.BridgeFirmware == nil || health.BridgeFirmware.Status != "missing" || !health.BridgeFirmware.UpdateAvailable {
+		t.Fatalf("bridge firmware=%+v, want missing and updateAvailable", health.BridgeFirmware)
+	}
+	if health.TXArmed {
+		t.Fatal("missing bridge must keep TX unarmed")
+	}
+}
+
 type linkRadio struct {
 	*radio.Mock
 	lost uint64

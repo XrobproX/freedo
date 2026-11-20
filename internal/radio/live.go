@@ -39,6 +39,10 @@ type pairWindowBridge interface {
 	SetPairWindow(cc1101.PairWindow) (int, error)
 }
 
+type bannerBridge interface {
+	Banner() string
+}
+
 // configuredBridge reads back whether the chip still holds its register set.
 type configuredBridge interface {
 	Configured() (bool, error)
@@ -49,6 +53,14 @@ type configuredBridge interface {
 type TunableBridge interface {
 	FSCTRL0() byte
 	SetFSCTRL0(byte) error
+}
+
+// Banner exposes the PING banner of a live bridge.
+func (r *Live) Banner() string {
+	if b, ok := r.br.(bannerBridge); ok {
+		return b.Banner()
+	}
+	return ""
 }
 
 type Live struct {

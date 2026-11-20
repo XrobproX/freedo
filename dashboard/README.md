@@ -56,6 +56,9 @@ and every page request gets `404`. The API works as before.
   `history.ts` holds the spans, the runs, the totals and the axes. Each chart is a slider for the keyboard: the
   arrow keys move the readout, which is also its value text, and a table under it holds the same values.
 - `src/lib/api.ts`: the client of the HTTP API. `data.svelte.ts` polls the views every 5 seconds.
+  The Settings page reads `bridgeFirmware` from `GET /api/health` and offers `POST /api/bridge/flash`
+  for an administrator-confirmed bridge update. The POST is an ingress-admin route; the status GET
+  stays in the normal dashboard route list.
 - `src/lib/install.ts`: the rules of the installation pages: the number of a new zone, the writes of a move,
   the state of each setup step. `install.svelte.ts` runs a change and reads the state again.
 - `src/lib/schedule.ts`: the rules and the operations of the schedule editor. `today.svelte.ts` reads the
